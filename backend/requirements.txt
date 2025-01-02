@@ -1,2 +1,10 @@
 python-miio
 yeelight
+pip
+requests
+pyyaml
+pydantic
+pydantic-settings
+pydantic_core
+uvicorn
+fastapi

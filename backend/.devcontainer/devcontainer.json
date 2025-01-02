@@ -1,0 +1,17 @@
+{
+    "name": "Smarthome backend",
+    "dockerComposeFile": [
+		"../docker-compose.yml",
+	],
+    "service": "app",
+	"workspaceFolder": "/workspace",
+    "extensions": [
+        "ms-python.python",
+        "ckolkman.vscode-postgres",
+        "2crunch.vscode-openapi"
+    ],
+    "settings": {
+        "terminal.integrated.shell.linux": "/bin/bash"
+    },
+    "postCreateCommand": "git config --global --add safe.directory '*'"
+}

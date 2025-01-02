@@ -1,0 +1,20 @@
+FROM python:3.11-slim
+
+RUN apt-get update && apt-get install -y curl build-essential libssl-dev git && rm -rf /var/lib/apt/lists/*
+
+ADD . /workspace
+
+
+# Устанавливаем Rust
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+
+# Добавляем Rust в переменную окружения PATH
+ENV PATH="/root/.cargo/bin:${PATH}"
+
+RUN python3.11 -m pip install --upgrade \
+                              --no-cache-dir \
+                              -r /workspace/requirements.txt
+
+# Устанавливаем рабочую директорию
+WORKDIR /workspace
+# CMD [ "python", "/opt/structurizr_backend/src/main.py" ]

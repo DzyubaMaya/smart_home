@@ -1,0 +1,10 @@
+version: '3.7'
+services:
+  app:
+    tty: true
+    container_name: app
+    volumes:
+      - .:/workspace
+    build:
+      context: .
+      dockerfile: Dockerfile

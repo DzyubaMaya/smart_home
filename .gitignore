@@ -1,2 +1,4 @@
 .DS_Store
 backend/output.txt
+backend/src/__pycache__
+backend/devices.json
