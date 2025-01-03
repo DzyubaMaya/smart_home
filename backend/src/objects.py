@@ -10,4 +10,9 @@ class SmartDevice(BaseModel):
     ip      : str
 
 class SmartHome(BaseModel):
+    temp_folder : str
     devices : List[SmartDevice]
+
+class Temperature(BaseModel):
+    temp : float
+    time : datetime

@@ -1,14 +1,52 @@
 from fastapi import FastAPI, HTTPException
 from typing import List, Optional
-from objects import SmartDevice, SmartHome
+from objects import SmartDevice, SmartHome, Temperature
+from datetime import datetime
 import json
 import uvicorn
+import os
+import re
 
 from miio import ChuangmiPlug
 from miio.exceptions import DeviceException
 
 app         = FastAPI()
 smart_home  = None
+temps       = None
+
+def get_temps(directory:str) -> List[Temperature]:
+    result = list()
+    txt_files = []
+    for root, dirs, files in os.walk(directory):
+        for file in files:
+            if file.endswith('.csv'):
+                txt_files.append(os.path.join(root, file))
+
+    print(f"# Total files with temp {len(txt_files)}")
+    for txt in txt_files:
+        with open(txt, 'r', encoding='utf-8') as file:
+            lines = file.readlines()
+            for line in lines:
+                items = line.split(',')
+                number = 0.0
+                try:
+                    number = float(items[1])
+                    match = re.search(r"\d+\.\d+", "0."+items[2])  # Ищет число с точкой
+                    if match:
+                        number += float(match.group())  # Преобразуем найденное число в float
+
+                    tmp = Temperature( time = datetime.strptime(items[0], "%Y-%m-%d %H:%M:%S"),
+                                       temp = number)
+                    result.append(tmp)
+                except Exception as e:
+                    pass
+
+    result = sorted(result, key=lambda x: x.time)
+    return result
+
+@app.get("/temps",response_model=List[Temperature])
+def get_temperature():
+    return temps
 
 @app.get("/devices", response_model=List[SmartDevice])
 def get_devices():
@@ -68,16 +106,10 @@ if __name__ == "__main__":
         print("# No device found")
         exit(-1)
 
+    temps = get_temps(smart_home.temp_folder)
+
+    print(f"# Loaded {len(temps)} temps")
     print(f"# Loaded {len(smart_home.devices)} devices")
 
     uvicorn.run(app, host="0.0.0.0", port=8080)
 
-
-# ip_address = "0.0.0.0"
-# token = "some token"
-# plug = ChuangmiPlug(ip_address, token)
-# plug.on()
-# status = plug.status()
-# print(f"Статус устройства: {status}")
-# info = plug.info()
-# print(f"Информация об устройстве: {info}")
