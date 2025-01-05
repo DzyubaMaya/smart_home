@@ -1,7 +1,7 @@
 version: '3.7'
 services:
   app:
-    tty: true
+    image: ddzuba/smarthome_backend
     container_name: app
     ports:
       - 8080:8080
@@ -11,9 +11,7 @@ services:
       - db
     environment:
       DATABASE_URL: "postgresql://smarthome:smarthome@db/smarthome"
-    build:
-      context: .
-      dockerfile: Dockerfile
+    
   db:
     image: postgres:14
     container_name: db

@@ -3,6 +3,7 @@ from typing import List, Optional
 from datetime import datetime
 
 
+
 class SmartDevice(BaseModel):
     name    : str
     type    : str
