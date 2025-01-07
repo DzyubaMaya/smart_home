@@ -1,7 +1,7 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Response, Depends
 from typing import List, Optional
-from objects import SmartDevice, SmartHome, Temperature
-from datetime import datetime
+from objects import SmartDevice, SmartHome, Temperature, UserCreate, UserCreateResponse, Login, LoginSession
+from datetime import datetime, timedelta
 from sqlalchemy import create_engine, Column, Integer, String
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
@@ -9,6 +9,8 @@ import json
 import uvicorn
 import os
 import re
+import hashlib
+
 
 from miio import ChuangmiPlug
 from miio.exceptions import DeviceException
@@ -16,6 +18,8 @@ from miio.exceptions import DeviceException
 app         = FastAPI()
 smart_home  = None
 temps       = None
+login_sessions = dict() # sessionid -> LoginSession
+session_idx = 0
 
 # Настройка SQLAlchemy
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://smarthome:smarthome@db/smarthome")
@@ -32,6 +36,92 @@ class User(Base):
     password = Column(String, index=False)
 
 Base.metadata.create_all(bind=engine)
+
+# Зависимости для получения сессии базы данных
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+def validate_session(session_id : str) -> bool:
+    if not session_id in login_sessions:
+        print(f"# Session not found {session_id}")
+        return False
+    else:
+        login_session = login_sessions[session_id]
+        time_difference = datetime.now() - login_session.created_time
+        if time_difference >= timedelta(minutes=1):
+            login_sessions.pop(session_id)
+            print(f"# Session expired {session_id}")
+            return False
+        else:
+            print(f"# Session valid {session_id}")
+            return True
+
+
+
+@app.post("/login",response_model=str)
+def login(login : Login, response: Response, db: Session = Depends(get_db)):
+    global session_idx
+    existing_user = db.query(User).filter(User.email == login.email).first()
+    if existing_user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    else:
+        sha512_hash = hashlib.sha512()
+        sha512_hash.update(login.password.encode('utf-8'))
+        hex_digest = sha512_hash.hexdigest()
+        if hex_digest != existing_user.password:
+            raise HTTPException(status_code=404, detail="Wrong password")
+        else:
+            session_idx = session_idx + 1
+            sha512_hash.update(str(session_idx).encode('utf-8'))
+            login_session = LoginSession(session_id = sha512_hash.hexdigest(),
+                                         created_time= datetime.now())
+            login_sessions[login_session.session_id] = login_session
+            response.set_cookie(key="session_id", value=login_session.session_id, max_age=1800)
+
+            return login_session.session_id
+
+@app.post("/users", response_model=UserCreateResponse)
+def create_user(user: UserCreate, db: Session = Depends(get_db)):
+    existing_user = db.query(User).filter(User.email == user.email).first()
+    if existing_user is None:
+        sha512_hash = hashlib.sha512()
+        sha512_hash.update(user.password.encode('utf-8'))
+        hex_digest = sha512_hash.hexdigest()
+        db_user = User(email = user.email,
+                       name  = user.name,
+                       password = hex_digest)
+        db.add(db_user)
+        db.commit()
+        db.refresh(db_user)
+        return UserCreateResponse(
+                result = True,
+                msg = "User created"
+            )
+    else:
+        return UserCreateResponse(
+                result = False,
+                msg = "User already exist"
+            )
+
+    return UserCreateResponse(
+                result = true,
+                msg = "User created"
+            )
+     
+
+# # Маршрут для получения пользователя по id
+# @app.get("/users/{user_id}", response_model=UserResponse, tags=["Users"])
+# def get_user(user_id: int, db: Session = Depends(get_db)):
+#     user = db.query(User).filter(User.id == user_id).first()
+#     if user is None:
+#         raise HTTPException(status_code=404, detail="User not found")
+#     return user
+
+
 
 def get_temps(directory:str) -> List[Temperature]:
     result = list()
@@ -64,9 +154,11 @@ def get_temps(directory:str) -> List[Temperature]:
     return result
 
 @app.get("/temps",response_model=List[Temperature])
-def get_temperature(first_date:str,last_date:str):
+def get_temperature(first_date:str,last_date:str,session_id:str):
     
-
+    if not validate_session(session_id=session_id):
+        raise HTTPException(status_code=403, detail="Invalid session")
+    
     fd = None
     ld = None
     try:
@@ -132,19 +224,24 @@ def get_temperature(first_date:str,last_date:str):
     return result
 
 @app.get("/devices", response_model=List[SmartDevice])
-def get_devices():
-    
+def get_devices(session_id : str):
+    if not validate_session(session_id=session_id):
+        raise HTTPException(status_code=403, detail="Invalid session")
     return smart_home.devices
 
 @app.get("/device",response_model=SmartDevice)
-def get_device(name:str):
+def get_device(name:str, session_id:str):
+    if not validate_session(session_id=session_id):
+        raise HTTPException(status_code=403, detail="Invalid session")
     for d in smart_home.devices:
         if d.name == name:
             return d
     raise HTTPException(status_code=404, detail="Device not found")
 
 @app.post("/plug_on",response_model=SmartDevice)
-def plug_on(name:str):
+def plug_on(name:str,session_id:str):
+    if not validate_session(session_id=session_id):
+        raise HTTPException(status_code=403, detail="Invalid session")
     for d in smart_home.devices:
         if d.name == name:
             try:
@@ -157,7 +254,9 @@ def plug_on(name:str):
     raise HTTPException(status_code=404, detail="Device not found")
 
 @app.post("/plug_off",response_model=SmartDevice)
-def plug_off(name:str):
+def plug_off(name:str,session_id=str):
+    if not validate_session(session_id=session_id):
+        raise HTTPException(status_code=403, detail="Invalid session")
     for d in smart_home.devices:
         if d.name == name:
             try:
@@ -170,7 +269,9 @@ def plug_off(name:str):
     raise HTTPException(status_code=404, detail="Device not found")
 
 @app.get("/plug_status",response_model=bool)
-def get_plug_status(name:str):
+def get_plug_status(name:str,session_id:str):
+    if not validate_session(session_id=session_id):
+        raise HTTPException(status_code=403, detail="Invalid session")
     for d in smart_home.devices:
         if d.name == name:
             try:
