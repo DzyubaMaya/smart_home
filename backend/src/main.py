@@ -52,7 +52,7 @@ def validate_session(session_id : str) -> bool:
     else:
         login_session = login_sessions[session_id]
         time_difference = datetime.now() - login_session.created_time
-        if time_difference >= timedelta(minutes=1):
+        if time_difference >= timedelta(minutes=30):
             login_sessions.pop(session_id)
             print(f"# Session expired {session_id}")
             return False
